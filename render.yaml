@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: chatmodbot
+    runtime: python
+    buildCommand: ""
+    startCommand: python bot.py
+    env: python
+    plan: free
+    autoDeploy: true
