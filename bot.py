@@ -189,7 +189,7 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 📌 Команда /ban 1d (відповіддю на повідомлення)
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id
+    if not is_admin(update.effective_user.id):
     user_id = update.message.reply_to_message.from_user.id
 
     if not context.args:
