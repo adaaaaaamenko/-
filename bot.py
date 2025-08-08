@@ -273,8 +273,11 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for member in update.message.new_chat_members:
-import os
+    import os  # імпорт на верхньому рівні
+
+for member in update.message.new_chat_members:
+    # тут має бути індентований код, наприклад:
+    print(member.full_name)
 import json
 import logging
 from datetime import datetime, timedelta
