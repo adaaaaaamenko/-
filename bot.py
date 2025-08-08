@@ -186,10 +186,15 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     )
     await update.message.reply_text("🔊 Користувача розмʼючено.")
-
 # 📌 Команда /ban 1d (відповіддю на повідомлення)
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
+        # Якщо користувач не є тех.адміном або доданим адміном — вихід
+        return await update.message.reply_text("⛔ У тебе немає прав для виконання цієї команди")
+
+    if not update.message.reply_to_message:
+        return await update.message.reply_text("📌 Використовуй команду у відповідь на повідомлення користувача")
+
     user_id = update.message.reply_to_message.from_user.id
 
     if not context.args:
@@ -208,21 +213,6 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(f"🚫 Користувача забанено на {context.args[0]}")
 
-# 📌 Команда /unban user_id
-async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-
-    if not context.args:
-        return await update.message.reply_text("👤 Вкажи ID користувача: /unban <user_id>")
-
-    try:
-        user_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("❗ ID має бути числом")
-
-    await context.bot.unban_chat_member(update.effective_chat.id, user_id)
-    await update.message.reply_text("✅ Користувача розбанено")
 
 # 📌 Команда /kick (відповісти на повідомлення)
 async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
