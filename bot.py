@@ -213,7 +213,32 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(f"🚫 Користувача забанено на {context.args[0]}")
 
+# 📌 Команда /unban (відповіддю на повідомлення або з ID)
+async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return await update.message.reply_text("⛔ У тебе немає прав на це.")
 
+    # Якщо відповіли на повідомлення
+    if update.message.reply_to_message:
+        user_id = update.message.reply_to_message.from_user.id
+    # Якщо передали ID
+    elif context.args:
+        try:
+            user_id = int(context.args[0])
+        except ValueError:
+            return await update.message.reply_text("⛔ Невірний ID користувача.")
+    else:
+        return await update.message.reply_text("📌 Використання: /unban [ID] або відповісти на повідомлення.")
+
+    try:
+        await context.bot.unban_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            only_if_banned=True
+        )
+        await update.message.reply_text("✅ Користувача розбанено.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠ Помилка: {e}")
 # 📌 Команда /kick (відповісти на повідомлення)
 async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
