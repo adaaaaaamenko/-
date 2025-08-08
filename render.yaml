@@ -1,9 +1,15 @@
 services:
   - type: web
-    name: chatmodbot
-    runtime: python
-    buildCommand: ""
-    startCommand: python bot.py
+    name: telegram-bot
     env: python
-    plan: free
+    region: oregon  # або твій регіон
+    plan: free      # або інший план
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python your_bot_file.py"
+    envVars:
+      - key: TOKEN
+        sync: false
+      - key: PORT
+        value: "8443"   # render сам може задати порт, можна пропустити, але краще явно
+        sync: false
     autoDeploy: true
