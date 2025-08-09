@@ -485,7 +485,53 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
         return await update.message.reply_text("👢 Відповідай на повідомлення користувача, якого треба вигнати.")
     user_id = update.message.reply_to_message.from_user.id
-    await context.bot.ban_chat_member(update.effective_chat.id, user_id)
+    await context.bot.async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for member in update.message.new_chat_members:
+        await update.message.reply_text(
+            f"👋 Вітаємо, {member.full_name}!\n📜 Ось правила чату:"
+        )
+        try:
+            with open("rules.txt", "r", encoding="utf-8") as f:
+                text = f.read()
+            await update.message.reply_text(text)
+        except FileNotFoundError:
+            await update.message.reply_text("📄 Файл з правилами не знайдено.")
+
+def main():
+    PORT = int(os.environ.get("PORT", "8443"))
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("admins", list_admins))
+    app.add_handler(CommandHandler("addadmin", add_admin))
+    app.add_handler(CommandHandler("removeadmin", remove_admin))
+    app.add_handler(CommandHandler("mute", mute))
+    app.add_handler(CommandHandler("unmute", unmute))
+    app.add_handler(CommandHandler("ban", ban))
+    app.add_handler(CommandHandler("unban", unban))
+    app.add_handler(CommandHandler("kick", kick))
+    app.add_handler(CommandHandler("clean", clean))
+    app.add_handler(CommandHandler("lock", lock))
+    app.add_handler(CommandHandler("unlock", unlock))
+    app.add_handler(CommandHandler("rules", rules))
+    app.add_handler(CommandHandler("report", report))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
+
+    WEBHOOK_URL = f"https://your-app-name.onrender.com/{TOKEN}"
+
+    print(f"🚀 Запуск webhook на порту {PORT} з URL: {WEBHOOK_URL}")
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=WEBHOOK_URL,
+    )
+
+
+if __name__ == '__main__':
+    main()ban_chat_member(update.effective_chat.id, user_id)
     await context.bot.unban_chat_member(update.effective_chat.id, user_id)
     await update.message.reply_text("👢 Користувача вигнано з чату.")
 
@@ -553,50 +599,3 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Останні ~50 рядків файлу — виправлена версія
 
-async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for member in update.message.new_chat_members:
-        await update.message.reply_text(
-            f"👋 Вітаємо, {member.full_name}!\n📜 Ось правила чату:"
-        )
-        try:
-            with open("rules.txt", "r", encoding="utf-8") as f:
-                text = f.read()
-            await update.message.reply_text(text)
-        except FileNotFoundError:
-            await update.message.reply_text("📄 Файл з правилами не знайдено.")
-
-def main():
-    PORT = int(os.environ.get("PORT", "8443"))
-
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("admins", list_admins))
-    app.add_handler(CommandHandler("addadmin", add_admin))
-    app.add_handler(CommandHandler("removeadmin", remove_admin))
-    app.add_handler(CommandHandler("mute", mute))
-    app.add_handler(CommandHandler("unmute", unmute))
-    app.add_handler(CommandHandler("ban", ban))
-    app.add_handler(CommandHandler("unban", unban))
-    app.add_handler(CommandHandler("kick", kick))
-    app.add_handler(CommandHandler("clean", clean))
-    app.add_handler(CommandHandler("lock", lock))
-    app.add_handler(CommandHandler("unlock", unlock))
-    app.add_handler(CommandHandler("rules", rules))
-    app.add_handler(CommandHandler("report", report))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
-
-    WEBHOOK_URL = f"https://your-app-name.onrender.com/{TOKEN}"
-
-    print(f"🚀 Запуск webhook на порту {PORT} з URL: {WEBHOOK_URL}")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=WEBHOOK_URL,
-    )
-
-
-if __name__ == '__main__':
-    main()
