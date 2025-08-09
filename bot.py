@@ -1,256 +1,188 @@
 import os
 import json
-import logging
 from datetime import datetime, timedelta
+from telegram import Update, ChatPermissions
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-from telegram import (
-    Update,
-    ChatPermissions,
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
+# ==============================
+# 🔹 Налаштування
+# ==============================
 
-from config import TOKEN, TECH_ADMINS
+TOKEN = os.environ.get("BOT_TOKEN")  # Токен беремо з змінних середовища Render
+TECH_ADMINS = [123456789, 987654321]  # ID двох "технічних" адмінів, яких не можна видалити
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+ADMINS_FILE = "admins.json"
 
-ADMINS_FILE = 'admins.json'
+# Якщо файл з адмінами не існує — створюємо його
+if not os.path.exists(ADMINS_FILE):
+    with open(ADMINS_FILE, "w", encoding="utf-8") as f:
+        json.dump(TECH_ADMINS, f)
 
+# Завантаження списку адмінів
 def load_admins():
-    try:
-        with open(ADMINS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    with open(ADMINS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
+# Збереження списку адмінів
 def save_admins(admins):
-    with open(ADMINS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(admins, f, indent=2)
+    with open(ADMINS_FILE, "w", encoding="utf-8") as f:
+        json.dump(admins, f)
 
-def is_admin(user_id: int):
-    return user_id in TECH_ADMINS or user_id in load_admins()
+# Перевірка чи користувач адмін
+def is_admin(user_id):
+    return user_id in load_admins()
 
-def is_tech_admin(user_id: int):
-    return user_id in TECH_ADMINS
-
-def parse_duration(duration_str: str) -> int:
-    unit = duration_str[-1]
+# ==============================
+# 🔹 Парсер часу (1h, 10m, 2d)
+# ==============================
+def parse_duration(duration_str):
     try:
+        unit = duration_str[-1]
         value = int(duration_str[:-1])
-    except ValueError:
+        if unit == "m":
+            return value * 60
+        elif unit == "h":
+            return value * 3600
+        elif unit == "d":
+            return value * 86400
+    except:
         return None
+    return None
 
-    if unit == 'm':
-        return value * 60
-    elif unit == 'h':
-        return value * 3600
-    elif unit == 'd':
-        return value * 86400
-    else:
-        return None
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привіт! Я — бот-модератор цього чату.")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    help_text = (
-        "🛠 *Адмін-команди:*\n"
-        "/mute <час> — замʼютити користувача (наприклад: /mute 10m)\n"
-        "/unmute — зняти мʼют\n"
-        "/ban <час> — забанити (наприклад: /ban 1h)\n"
-        "/unban <id> — розбанити за ID\n"
-        "/kick — вигнати користувача\n"
-        "/clean <N> — видалити останні N повідомлень\n"
-        "/lock — закрити чат (лише читання)\n"
-        "/unlock — відкрити чат\n"
-        "/rules — показати правила\n"
-        "/report @юзер причина — повідомити адмінам\n"
-        "/admins — список адмінів\n"
-        "/addadmin <id> — додати адміна\n"
-        "/removeadmin <id> — видалити адміна\n"
-    )
-    await update.message.reply_text(help_text, parse_mode="Markdown")
-
-async def list_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_tech_admin(update.effective_user.id):
-        return
-    dynamic_admins = load_admins()
-    tech_list = "\n".join([f"👑 {admin}" for admin in TECH_ADMINS])
-    dynamic_list = "\n".join([f"🔧 {admin}" for admin in dynamic_admins])
-    await update.message.reply_text(f"Список адмінів:\n{tech_list}\n{dynamic_list}")
-
-async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_tech_admin(update.effective_user.id):
-        return
-    if not context.args:
-        return await update.message.reply_text("Використання: /addadmin <user_id>")
-    try:
-        user_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("Невірний формат ID")
-    admins = load_admins()
-    if user_id not in admins:
-        admins.append(user_id)
-        save_admins(admins)
-        await update.message.reply_text(f"✅ Адміна додано: {user_id}")
-    else:
-        await update.message.reply_text("Користувач вже є адміном.")
-
-async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_tech_admin(update.effective_user.id):
-        return
-    if not context.args:
-        return await update.message.reply_text("Використання: /removeadmin <user_id>")
-    try:
-        user_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("Невірний формат ID")
-    admins = load_admins()
-    if user_id in admins:
-        admins.remove(user_id)
-        save_admins(admins)
-        await update.message.reply_text(f"❌ Адміна видалено: {user_id}")
-    else:
-        await update.message.reply_text("Користувач не є адміном.")
+# ==============================
+# 🔹 Команди модерації
+# ==============================
 
 async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        return
+        return await update.message.reply_text("⛔ У вас немає прав.")
+
     if not update.message.reply_to_message:
-        return await update.message.reply_text("🔇 Відповідай на повідомлення користувача, якого треба замʼютити.")
+        return await update.message.reply_text("⚠️ Відповідь на повідомлення користувача, якого хочете зам'ютити.")
+
     if not context.args:
-        return await update.message.reply_text("❗ Вкажи тривалість мʼюту (наприклад: /mute 10m)")
+        return await update.message.reply_text("⏳ Вкажіть тривалість (наприклад: 1h, 30m)")
+
     seconds = parse_duration(context.args[0])
     if not seconds:
-        return await update.message.reply_text("⛔ Формат: 10m, 1h, 2d")
+        return await update.message.reply_text("⛔ Формат часу: 10m, 1h, 2d")
+
     until = datetime.utcnow() + timedelta(seconds=seconds)
-    user_id = update.message.reply_to_message.from_user.id
     await context.bot.restrict_chat_member(
         update.effective_chat.id,
-        user_id,
+        update.message.reply_to_message.from_user.id,
         permissions=ChatPermissions(can_send_messages=False),
         until_date=until
     )
-    await update.message.reply_text(f"🔇 Користувача замʼючено на {context.args[0]}")
+    await update.message.reply_text(f"🔇 Користувача зам'ютили на {context.args[0]}")
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        return
+        return await update.message.reply_text("⛔ У вас немає прав.")
+
     if not update.message.reply_to_message:
-        return await update.message.reply_text("🔊 Відповідай на повідомлення користувача, якого треба розмʼютити.")
-    user_id = update.message.reply_to_message.from_user.id
+        return await update.message.reply_text("⚠️ Відповідь на повідомлення користувача.")
+
     await context.bot.restrict_chat_member(
         update.effective_chat.id,
-        user_id,
-        permissions=ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True,
-        )
+        update.message.reply_to_message.from_user.id,
+        permissions=ChatPermissions(can_send_messages=True)
     )
-    await update.message.reply_text("🔊 Користувача розмʼючено.")
+    await update.message.reply_text("🔊 Користувача розм'ютили.")
 
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("⛔ У тебе немає прав для виконання цієї команди")
+        return await update.message.reply_text("⛔ У вас немає прав.")
+
     if not update.message.reply_to_message:
-        return await update.message.reply_text("📌 Використовуй команду у відповідь на повідомлення користувача")
-    user_id = update.message.reply_to_message.from_user.id
+        return await update.message.reply_text("⚠️ Відповідь на повідомлення користувача.")
+
     if not context.args:
-        return await update.message.reply_text("⏳ Вкажи тривалість бана (наприклад: /ban 1d)")
-    seconds = parse_duration(context.args[0])
-    if not seconds:
-        return await update.message.reply_text("⛔ Формат: 10m, 1h, 2d")
-    until = datetime.utcnow() + timedelta(seconds=seconds)
+        return await update.message.reply_text("⏳ Вкажіть тривалість (1h, 2d) або 0 для перманентного бану.")
+
+    if context.args[0] == "0":
+        until = None
+    else:
+        seconds = parse_duration(context.args[0])
+        if not seconds:
+            return await update.message.reply_text("⛔ Формат часу: 10m, 1h, 2d")
+        until = datetime.utcnow() + timedelta(seconds=seconds)
+
     await context.bot.ban_chat_member(
         update.effective_chat.id,
-        user_id,
+        update.message.reply_to_message.from_user.id,
         until_date=until
     )
     await update.message.reply_text(f"🚫 Користувача забанено на {context.args[0]}")
 
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("⛔ У тебе немає прав на це.")
-    if update.message.reply_to_message:
-        user_id = update.message.reply_to_message.from_user.id
-    elif context.args:
-        try:
-            user_id = int(context.args[0])
-        except ValueError:
-            return await update.message.reply_text("⛔ Невірний ID користувача.")
-    else:
-        return await update.message.reply_text("📌 Використання: /unban [ID] або відповісти на повідомлення.")
-    try:
-        await context.bot.unban_chat_member(
-            chat_id=update.effective_chat.id,
-            user_id=user_id,
-            only_if_banned=True
-        )
-        await update.message.reply_text("✅ Користувача розбанено.")
-    except Exception as e:
-        await update.message.reply_text(f"⚠ Помилка: {e}")
+        return await update.message.reply_text("⛔ У вас немає прав.")
+
+    if not context.args:
+        return await update.message.reply_text("⚠️ Вкажіть ID користувача.")
+
+    await context.bot.unban_chat_member(update.effective_chat.id, int(context.args[0]))
+    await update.message.reply_text("✅ Користувача розбанено.")
 
 async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        return
+        return await update.message.reply_text("⛔ У вас немає прав.")
+
     if not update.message.reply_to_message:
-        return await update.message.reply_text("👢 Відповідай на повідомлення користувача, якого треба вигнати.")
+        return await update.message.reply_text("⚠️ Відповідь на повідомлення користувача.")
+
     user_id = update.message.reply_to_message.from_user.id
     await context.bot.ban_chat_member(update.effective_chat.id, user_id)
     await context.bot.unban_chat_member(update.effective_chat.id, user_id)
-    await update.message.reply_text("👢 Користувача вигнано з чату.")
+    await update.message.reply_text("👢 Користувача кікнули.")
 
-async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    await context.bot.set_chat_permissions(
-        update.effective_chat.id,
-        permissions=ChatPermissions(can_send_messages=False)
-    )
-    await update.message.reply_text("🔒 Чат закрито. Тепер тільки читання.")
+# ==============================
+# 🔹 Система адмінів
+# ==============================
 
-async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    await context.bot.set_chat_permissions(
-        update.effective_chat.id,
-        permissions=ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True,
-        )
-    )
-    await update.message.reply_text("🔓 Чат відкрито. Всі можуть писати.")
+async def list_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    admins = load_admins()
+    text = "👮‍♂️ Список адмінів:\n" + "\n".join(str(a) for a in admins)
+    await update.message.reply_text(text)
 
-async def clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
+async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in TECH_ADMINS:
+        return await update.message.reply_text("⛔ Лише технічні адміни можуть додавати адмінів.")
+
     if not context.args:
-        return await update.message.reply_text("🧹 Вкажи кількість повідомлень для видалення: /clean 10")
-    try:
-        count = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("❗ Це має бути число.")
-    messages = []
-    async for msg in update.effective_chat.get_history(limit=count + 1):
-        messages.append(msg.message_id)
-    for msg_id in messages:
-        try:
-            await context.bot.delete_message(update.effective_chat.id, msg_id)
-        except:
-            continue
-    await update.message.reply_text(f"🧼 Видалено {count} повідомлень.")
+        return await update.message.reply_text("⚠️ Вкажіть ID користувача.")
+
+    admins = load_admins()
+    new_id = int(context.args[0])
+    if new_id not in admins:
+        admins.append(new_id)
+        save_admins(admins)
+        await update.message.reply_text("✅ Адміна додано.")
+    else:
+        await update.message.reply_text("ℹ️ Користувач вже адмін.")
+
+async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in TECH_ADMINS:
+        return await update.message.reply_text("⛔ Лише технічні адміни можуть видаляти адмінів.")
+
+    if not context.args:
+        return await update.message.reply_text("⚠️ Вкажіть ID користувача.")
+
+    admins = load_admins()
+    rem_id = int(context.args[0])
+    if rem_id in TECH_ADMINS:
+        return await update.message.reply_text("⛔ Неможливо видалити технічного адміна.")
+    if rem_id in admins:
+        admins.remove(rem_id)
+        save_admins(admins)
+        await update.message.reply_text("✅ Адміна видалено.")
+    else:
+        await update.message.reply_text("ℹ️ Користувач не адмін.")
+
+# ==============================
+# 🔹 Інші команди
+# ==============================
 
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -261,265 +193,49 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📄 Файл з правилами не знайдено.")
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        return await update.message.reply_text("Використання: /report @username причина")
-    reason = ' '.join(context.args)
-    reporter = update.effective_user.mention_html()
-    admin_ids = TECH_ADMINS + load_admins()
-    mentions = [f"<a href='tg://user?id={admin_id}'>адмін</a>" for admin_id in admin_ids]
-    mention_text = ", ".join(mentions)
-    await update.message.reply_html(
-        f"🚨 Репорт від {reporter}:\nПричина: {reason}\n🔔 {mention_text}"
-    )
+    admins = load_admins()
+    text = f"📢 Репорт від {update.effective_user.full_name} ({update.effective_user.id}):\n"
+    text += " ".join(context.args) if context.args else "(без тексту)"
+    for admin_id in admins:
+        try:
+            await context.bot.send_message(admin_id, text)
+        except:
+            pass
+    await update.message.reply_text("✅ Репорт відправлено.")
 
 async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import os  # імпорт на верхньому рівні
-
-for member in update.message.new_chat_members:
-    # тут має бути індентований код, наприклад:
-    print(member.full_name)
-import json
-import logging
-from datetime import datetime, timedelta
-
-from telegram import (
-    Update,
-    ChatPermissions,
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
-
-from config import TOKEN, TECH_ADMINS
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-ADMINS_FILE = 'admins.json'
-
-def load_admins():
-    try:
-        with open(ADMINS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-def save_admins(admins):
-    with open(ADMINS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(admins, f, indent=2)
-
-def is_admin(user_id: int):
-    return user_id in TECH_ADMINS or user_id in load_admins()
-
-def is_tech_admin(user_id: int):
-    return user_id in TECH_ADMINS
-
-def parse_duration(duration_str: str) -> int:
-    unit = duration_str[-1]
-    try:
-        value = int(duration_str[:-1])
-    except ValueError:
-        return None
-
-    if unit == 'm':
-        return value * 60
-    elif unit == 'h':
-        return value * 3600
-    elif unit == 'd':
-        return value * 86400
-    else:
-        return None
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привіт! Я — бот-модератор цього чату.")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    help_text = (
-        "🛠 *Адмін-команди:*\n"
-        "/mute <час> — замʼютити користувача (наприклад: /mute 10m)\n"
-        "/unmute — зняти мʼют\n"
-        "/ban <час> — забанити (наприклад: /ban 1h)\n"
-        "/unban <id> — розбанити за ID\n"
-        "/kick — вигнати користувача\n"
-        "/clean <N> — видалити останні N повідомлень\n"
-        "/lock — закрити чат (лише читання)\n"
-        "/unlock — відкрити чат\n"
-        "/rules — показати правила\n"
-        "/report @юзер причина — повідомити адмінам\n"
-        "/admins — список адмінів\n"
-        "/addadmin <id> — додати адміна\n"
-        "/removeadmin <id> — видалити адміна\n"
-    )
-    await update.message.reply_text(help_text, parse_mode="Markdown")
-
-async def list_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_tech_admin(update.effective_user.id):
-        return
-    dynamic_admins = load_admins()
-    tech_list = "\n".join([f"👑 {admin}" for admin in TECH_ADMINS])
-    dynamic_list = "\n".join([f"🔧 {admin}" for admin in dynamic_admins])
-    await update.message.reply_text(f"Список адмінів:\n{tech_list}\n{dynamic_list}")
-
-async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_tech_admin(update.effective_user.id):
-        return
-    if not context.args:
-        return await update.message.reply_text("Використання: /addadmin <user_id>")
-    try:
-        user_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("Невірний формат ID")
-    admins = load_admins()
-    if user_id not in admins:
-        admins.append(user_id)
-        save_admins(admins)
-        await update.message.reply_text(f"✅ Адміна додано: {user_id}")
-    else:
-        await update.message.reply_text("Користувач вже є адміном.")
-
-async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_tech_admin(update.effective_user.id):
-        return
-    if not context.args:
-        return await update.message.reply_text("Використання: /removeadmin <user_id>")
-    try:
-        user_id = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("Невірний формат ID")
-    admins = load_admins()
-    if user_id in admins:
-        admins.remove(user_id)
-        save_admins(admins)
-        await update.message.reply_text(f"❌ Адміна видалено: {user_id}")
-    else:
-        await update.message.reply_text("Користувач не є адміном.")
-
-async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not update.message.reply_to_message:
-        return await update.message.reply_text("🔇 Відповідай на повідомлення користувача, якого треба замʼютити.")
-    if not context.args:
-        return await update.message.reply_text("❗ Вкажи тривалість мʼюту (наприклад: /mute 10m)")
-    seconds = parse_duration(context.args[0])
-    if not seconds:
-        return await update.message.reply_text("⛔ Формат: 10m, 1h, 2d")
-    until = datetime.utcnow() + timedelta(seconds=seconds)
-    user_id = update.message.reply_to_message.from_user.id
-    await context.bot.restrict_chat_member(
-        update.effective_chat.id,
-        user_id,
-        permissions=ChatPermissions(can_send_messages=False),
-        until_date=until
-    )
-    await update.message.reply_text(f"🔇 Користувача замʼючено на {context.args[0]}")
-
-async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not update.message.reply_to_message:
-        return await update.message.reply_text("🔊 Відповідай на повідомлення користувача, якого треба розмʼютити.")
-    user_id = update.message.reply_to_message.from_user.id
-    await context.bot.restrict_chat_member(
-        update.effective_chat.id,
-        user_id,
-        permissions=ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True,
-        )
-    )
-    await update.message.reply_text("🔊 Користувача розмʼючено.")
-
-async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("⛔ У тебе немає прав для виконання цієї команди")
-    if not update.message.reply_to_message:
-        return await update.message.reply_text("📌 Використовуй команду у відповідь на повідомлення користувача")
-    user_id = update.message.reply_to_message.from_user.id
-    if not context.args:
-        return await update.message.reply_text("⏳ Вкажи тривалість бана (наприклад: /ban 1d)")
-    seconds = parse_duration(context.args[0])
-    if not seconds:
-        return await update.message.reply_text("⛔ Формат: 10m, 1h, 2d")
-    until = datetime.utcnow() + timedelta(seconds=seconds)
-    await context.bot.ban_chat_member(
-        update.effective_chat.id,
-        user_id,
-        until_date=until
-    )
-    await update.message.reply_text(f"🚫 Користувача забанено на {context.args[0]}")
-
-async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("⛔ У тебе немає прав на це.")
-    if update.message.reply_to_message:
-        user_id = update.message.reply_to_message.from_user.id
-    elif context.args:
-        try:
-            user_id = int(context.args[0])
-        except ValueError:
-            return await update.message.reply_text("⛔ Невірний ID користувача.")
-    else:
-        return await update.message.reply_text("📌 Використання: /unban [ID] або відповісти на повідомлення.")
-    try:
-        await context.bot.unban_chat_member(
-            chat_id=update.effective_chat.id,
-            user_id=user_id,
-            only_if_banned=True
-        )
-        await update.message.reply_text("✅ Користувача розбанено.")
-    except Exception as e:
-        await update.message.reply_text(f"⚠ Помилка: {e}")
-
-async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not update.message.reply_to_message:
-        return await update.message.reply_text("👢 Відповідай на повідомлення користувача, якого треба вигнати.")
-    user_id = update.message.reply_to_message.from_user.id
-    await context.bot.async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         await update.message.reply_text(
-            f"👋 Вітаємо, {member.full_name}!\n📜 Ось правила чату:"
+            f"👋 Вітаємо, {member.full_name}!\n📜 Ознайомтесь з правилами команди /rules"
         )
-        try:
-            with open("rules.txt", "r", encoding="utf-8") as f:
-                text = f.read()
-            await update.message.reply_text(text)
-        except FileNotFoundError:
-            await update.message.reply_text("📄 Файл з правилами не знайдено.")
+
+# ==============================
+# 🔹 Запуск бота (Webhook)
+# ==============================
 
 def main():
     PORT = int(os.environ.get("PORT", "8443"))
+    HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+    WEBHOOK_URL = f"https://{HOSTNAME}/{TOKEN}"
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("admins", list_admins))
-    app.add_handler(CommandHandler("addadmin", add_admin))
-    app.add_handler(CommandHandler("removeadmin", remove_admin))
+    # Команди модерації
     app.add_handler(CommandHandler("mute", mute))
     app.add_handler(CommandHandler("unmute", unmute))
     app.add_handler(CommandHandler("ban", ban))
     app.add_handler(CommandHandler("unban", unban))
     app.add_handler(CommandHandler("kick", kick))
-    app.add_handler(CommandHandler("clean", clean))
-    app.add_handler(CommandHandler("lock", lock))
-    app.add_handler(CommandHandler("unlock", unlock))
+
+    # Система адмінів
+    app.add_handler(CommandHandler("admins", list_admins))
+    app.add_handler(CommandHandler("addadmin", add_admin))
+    app.add_handler(CommandHandler("removeadmin", remove_admin))
+
+    # Інші команди
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
-
-    WEBHOOK_URL = f"https://your-app-name.onrender.com/{TOKEN}"
 
     print(f"🚀 Запуск webhook на порту {PORT} з URL: {WEBHOOK_URL}")
     app.run_webhook(
@@ -529,73 +245,5 @@ def main():
         webhook_url=WEBHOOK_URL,
     )
 
-
-if __name__ == '__main__':
-    main()ban_chat_member(update.effective_chat.id, user_id)
-    await context.bot.unban_chat_member(update.effective_chat.id, user_id)
-    await update.message.reply_text("👢 Користувача вигнано з чату.")
-
-async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    await context.bot.set_chat_permissions(
-        update.effective_chat.id,
-        permissions=ChatPermissions(can_send_messages=False)
-    )
-    await update.message.reply_text("🔒 Чат закрито. Тепер тільки читання.")
-
-async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    await context.bot.set_chat_permissions(
-        update.effective_chat.id,
-        permissions=ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_add_web_page_previews=True,
-        )
-    )
-    await update.message.reply_text("🔓 Чат відкрито. Всі можуть писати.")
-
-async def clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not context.args:
-        return await update.message.reply_text("🧹 Вкажи кількість повідомлень для видалення: /clean 10")
-    try:
-        count = int(context.args[0])
-    except ValueError:
-        return await update.message.reply_text("❗ Це має бути число.")
-    messages = []
-    async for msg in update.effective_chat.get_history(limit=count + 1):
-        messages.append(msg.message_id)
-    for msg_id in messages:
-        try:
-            await context.bot.delete_message(update.effective_chat.id, msg_id)
-        except:
-            continue
-    await update.message.reply_text(f"🧼 Видалено {count} повідомлень.")
-
-async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        with open("rules.txt", "r", encoding="utf-8") as f:
-            text = f.read()
-        await update.message.reply_text(text)
-    except FileNotFoundError:
-        await update.message.reply_text("📄 Файл з правилами не знайдено.")
-
-async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        return await update.message.reply_text("Використання: /report @username причина")
-    reason = ' '.join(context.args)
-    reporter = update.effective_user.mention_html()
-    admin_ids = TECH_ADMINS + load_admins()
-    mentions = [f"<a href='tg://user?id={admin_id}'>адмін</a>" for admin_id in admin_ids]
-    mention_text = ", ".join(mentions)
-    await update.message.reply_html(
-        f"🚨 Репорт від {reporter}:\nПричина: {reason}\n🔔 {mention_text}"
-    )
-
-# Останні ~50 рядків файлу — виправлена версія
-
+if __name__ == "__main__":
+    main()
